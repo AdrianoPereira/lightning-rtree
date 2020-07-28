@@ -10,6 +10,22 @@ from shapely.geometry import Point, Polygon, MultiPolygon
 import rtree as rt
 
 
+def compute_time_execution(function):
+    import timeit
+
+    def wrapper(**kwargs):
+        start_execution = timeit.default_timer()
+        return_function = function(**kwargs)
+        elapsed_time_execution = timeit.default_timer() - start_execution
+        print('The function {name} took {time} seconds to complete.'.format(
+            name=function.__name__, time=elapsed_time_execution
+        ))
+
+        return return_function
+    return wrapper
+
+
+@compute_time_execution
 def generate_data(**kwargs):
     """Generate dummies data.
 
@@ -61,8 +77,9 @@ def generate_data(**kwargs):
     return grid, points
 
 
-def compute_hits(grid, points):
-    """Compute hits of points in polygons.
+@compute_time_execution
+def compute_hits_rtree(grid, points):
+    """Compute hits of points in polygons using R-tree data structure.
 
     Function to compute total points in each grid cell. The function is
     optimized using R-tree as a spatial index.
@@ -91,6 +108,35 @@ def compute_hits(grid, points):
     return df_ref
 
 
+@compute_time_execution
+def compute_hits(grid, points):
+    """Compute hits of points in polygons using brute force.
+
+    Function to compute total points in each grid cell. The function is
+    optimized using R-tree as a spatial index.
+
+    :param grid: The `grid` is a geo data frame that represents the grid cells.
+    :param points: The `points` is a geo data frame that represents all points
+    to compare.
+
+    :return `df_ref`: The return is a data frame that contain the reference in
+    the grid of each point.
+    """
+
+    df_ref = gpd.GeoDataFrame()
+
+    for i, point in points.iterrows():
+        new_row = dict(x=point.x, y=point.y, geometry=point.geometry, grid=None)
+        for j, polygon in grid.iterrows():
+            if point['geometry'].within(polygon):
+                new_row['grid'] = j
+                break
+        new_row = gpd.GeoDataFrame(new_row)
+        df_ref = df_ref.append(new_row)
+
+    return df_ref
+
+
 def run():
     res = 10
     samples = 1000
@@ -100,7 +146,7 @@ def run():
     grid, points = generate_data(resolution=res, n_samples=samples)
     west, south, east, north = points.unary_union.bounds
 
-    df_ref = compute_hits(grid, points)
+    df_ref = compute_hits_rtree(grid, points)
     within = df_ref.query('grid == %d'%(ngrid))
     outside = df_ref[~df_ref.isin(within)]
 

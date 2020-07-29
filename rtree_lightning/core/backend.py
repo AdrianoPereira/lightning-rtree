@@ -13,15 +13,15 @@ import rtree as rt
 def compute_time_execution(function):
     import timeit
 
-    def wrapper(**kwargs):
+    def wrapper(*args, **kwargs):
         start_execution = timeit.default_timer()
-        return_function = function(**kwargs)
+        function_return = function(*args, **kwargs)
         elapsed_time_execution = timeit.default_timer() - start_execution
         print('The function {name} took {time} seconds to complete.'.format(
             name=function.__name__, time=elapsed_time_execution
         ))
 
-        return return_function
+        return function_return
     return wrapper
 
 
@@ -126,27 +126,32 @@ def compute_hits(grid, points):
     df_ref = gpd.GeoDataFrame()
 
     for i, point in points.iterrows():
-        new_row = dict(x=point.x, y=point.y, geometry=point.geometry, grid=None)
+        new_row = dict(x=[point.x], y=[point.y], geometry=[point.geometry],
+                       grid=[None])
         for j, polygon in grid.iterrows():
-            if point['geometry'].within(polygon):
-                new_row['grid'] = j
+            if point['geometry'].within(polygon['geometry']):
+                new_row['grid'][0] = j
                 break
-        new_row = gpd.GeoDataFrame(new_row)
-        df_ref = df_ref.append(new_row)
 
+        new_row = gpd.GeoDataFrame(new_row)
+        # print(new_row)
+        df_ref = df_ref.append(new_row)
+    df_ref.reset_index(drop=True, inplace=True)
     return df_ref
 
 
 def run():
     res = 10
-    samples = 1000
+    samples = 100000
     ngrid = 22
     idx = ngrid//res
     idy = ngrid%res
     grid, points = generate_data(resolution=res, n_samples=samples)
     west, south, east, north = points.unary_union.bounds
 
-    df_ref = compute_hits_rtree(grid, points)
+    df_ref = compute_hits(grid, points)
+    df_ref2 = compute_hits_rtree(grid, points)
+
     within = df_ref.query('grid == %d'%(ngrid))
     outside = df_ref[~df_ref.isin(within)]
 
@@ -174,8 +179,6 @@ def run():
     ax[1].set_xlim(west, east)
     ax[1].set_ylim(south, north)
 
-    # ax[0].scatter(points.iloc[:, 0].values, points.iloc[:, 1].values,
-    #               zorder=3, marker='.', color='b')
 
     ax[1].scatter(within['x'].values, within['y'].values, zorder=3, marker='.',
                   color='r')
